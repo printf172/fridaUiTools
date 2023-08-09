@@ -21,21 +21,16 @@ var savepath = "%savepath%";
 var dex_maps = {};
 var artmethod_maps = {};
 
-
-function klog(data){
+function klog(data,...args){
+    for (let item of args){
+        data+="\t"+item;
+    }
     var message={};
-    message["jsname"]="fart";
+    message["jsname"]="frida_fart_hook";
     message["data"]=data;
     send(message);
 }
 
-function klogData(data,key,value){
-    var message={};
-    message["jsname"]="fart";
-    message["data"]=data;
-    message[key]=value;
-    send(message);
-}
 //替换了console.log
 console.log = (function (oriLogFunc) {
   return function () {
@@ -57,7 +52,7 @@ function ArtMethod(dexfile, artmethodptr) {
 }
 
 function hookart() {
-    klogData("","init","frida_fart.js init hook success");
+    klog("init","frida_fart.js init hook success");
     if (ishook_libart === true) {
         return;
     }
@@ -67,6 +62,7 @@ function hookart() {
     } else if (Process.arch === "arm") {
         module_libext = Module.load("/data/app/fart.so");
     }
+    console.log("module_libext",module_libext);
     if (module_libext != null) {
         addrGetCodeItemLength = module_libext.findExportByName("GetCodeItemLength");
         funcGetCodeItemLength = new NativeFunction(addrGetCodeItemLength, "int", ["pointer"]);
@@ -86,7 +82,7 @@ function hookart() {
         if (symbol.name.indexOf("ClassLinker") >= 0
             && symbol.name.indexOf("LoadMethod") >= 0
             && symbol.name.indexOf("DexFile") >= 0
-            && symbol.name.indexOf(versionData) >= 0
+            // && symbol.name.indexOf(versionData) >= 0
             && symbol.name.indexOf("ArtMethod") >= 0) {
             addrLoadMethod = symbol.address;
             break;
@@ -94,6 +90,7 @@ function hookart() {
     }
 
     if (addrLoadMethod != null) {
+        console.log("addrLoadMethod",addrLoadMethod);
         Interceptor.attach(addrLoadMethod, {
             onEnter: function (args) {
                 this.dexfileptr = args[1];
@@ -333,22 +330,20 @@ function romFartAllClassLoader(){
        })
     });
 }
+rpc.exports.fart=function(){
+    fart();
+}
 
-rpc.exports = {
-    fart:function(){
-        fart();
-    },
-    fartclass:function(classes){
-        dumpclass(classes);
-    },
-    romfart:function(){
-        //调用fartext的api
-        romFartAllClassLoader();
-    },
-    romfartclass:function(classes){
-        //调用fartext的api
-        romClassesInvoke(classes)
-    }
+rpc.exports.fartclass=function(classes){
+    dumpclass(classes);
+}
+rpc.exports.romfart=function(){
+    //调用fartext的api
+    romFartAllClassLoader();
+}
+rpc.exports.romfartclass = function(classes){
+    //调用fartext的api
+    romClassesInvoke(classes)
 }
 
 setImmediate(hookart);

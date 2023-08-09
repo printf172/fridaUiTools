@@ -13,7 +13,7 @@ class selectPackageForm(QDialog,Ui_SelectPackageDialog):
         self.txtPackage.textChanged.connect(self.changePackage)
 
     def changePackage(self,data):
-        if data=="" or data=="选择缓存数据":
+        if data=="" or data=="tmp data":
             return
         self.listPackages.clear()
         if len(data)>0:
@@ -36,7 +36,7 @@ class selectPackageForm(QDialog,Ui_SelectPackageDialog):
     def submit(self):
         packageName = self.txtPackage.text()
         if len(packageName) <= 0:
-            QMessageBox().information(self, "提示", "未选择package")
+            QMessageBox().information(self, "hint", "missing packageNamee")
             return
         self.packageName = packageName
         self.accept()

@@ -1,17 +1,12 @@
 
 (function(){
-
-function klog(data){
+function klog(data,...args){
+    for (let item of args){
+        data+="\t"+item;
+    }
     var message={};
-    message["jsname"]="traceNative";
+    message["jsname"]="jni_trace_new";
     message["data"]=data;
-    send(message);
-}
-function klogData(data,key,value){
-    var message={};
-    message["jsname"]="traceNative";
-    message["data"]=data;
-    message[key]=value;
     send(message);
 }
 
@@ -43,7 +38,12 @@ function nativeHookFunction(addr,function_name){
             this.logs.push("arg3:",hexdumpMem(this.arg3));
             this.logs.push("arg4:",hexdumpMem(this.arg4));
             this.logs.push("arg5:",hexdumpMem(this.arg5));
+            for(var i=0;i<this.logs.length;i++){
+                klog(this.logs[i]);
+            }
+            // this.logs.clear();
         },onLeave:function(retval){
+            this.logs=[];
             this.logs.push("arg0 leave:",hexdumpMem(this.arg0));
             this.logs.push("arg1 leave:",hexdumpMem(this.arg1));
             this.logs.push("arg2 leave:",hexdumpMem(this.arg2));
@@ -52,7 +52,11 @@ function nativeHookFunction(addr,function_name){
             this.logs.push("arg5 leave:",hexdumpMem(this.arg5));
             this.logs.push("retval leave:",hexdumpMem(retval));
             // console.log(this.logs);
-            klog(this.logs)
+            for(var i=0;i<this.logs.length;i++){
+                klog(this.logs[i]);
+            }
+            // this.logs.clear();
+
         }
     })
 }
@@ -108,7 +112,7 @@ function main(){
     var isSpawn = "%spawn%";
     var moduleName = "%moduleName%" // 目标模块
     var methodName = {methodName} // 目标函数,这里是个列表
-    klogData("","init","traceNative.js init hook success");
+    klog("init","traceNative.js init hook success");
     if (isSpawn) {
         spawn_hook(moduleName, methodName)
     } else {

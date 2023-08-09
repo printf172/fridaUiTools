@@ -1,104 +1,115 @@
 (function(){
+//
+// const arm64CM = new CModule(`
+// #include <gum/gumstalker.h>
+// #include <stdio.h>
+// #include <string.h>
+// #include <stdlib.h>
+//
+// extern void on_message(const gchar *message);
+// static void log(const gchar *format, ...);
+// static void on_arm64_before(GumCpuContext *cpu_context, gpointer user_data);
+// static void on_arm64_after(GumCpuContext *cpu_context, gpointer user_data);
+//
+// void hello() {
+//     on_message("Hello form CModule");
+// }
+//
+// gpointer shared_mem[] = {0, 0};
+//
+// gpointer 
+// get_shared_mem() 
+// {
+//     return shared_mem;
+// }
+//
+//
+// static void
+// log(const gchar *format, ...)
+// {
+//     gchar *message;
+//     va_list args;
+//
+//     va_start(args, format);
+//     message = g_strdup_vprintf(format, args);
+//     va_end(args);
+//
+//     on_message(message);
+//     g_free(message);
+// }
+//
+//
+// void transform(GumStalkerIterator *iterator,
+//                GumStalkerOutput *output,
+//                gpointer user_data)
+// {
+//     cs_insn *insn;
+//
+//     gpointer base = *(gpointer*)user_data;
+//     gpointer end = *(gpointer*)(user_data + sizeof(gpointer));
+//    
+//     while (gum_stalker_iterator_next(iterator, &insn))
+//     {
+//         gboolean in_target = (gpointer)insn->address >= base && (gpointer)insn->address < end;
+//         if(in_target)
+//         {
+//             log("%p\t%s\t%s", (gpointer)insn->address, insn->mnemonic, insn->op_str);
+//             gum_stalker_iterator_put_callout(iterator, on_arm64_before, (gpointer) insn->address, NULL);
+//         }
+//         gum_stalker_iterator_keep(iterator);
+//         if(in_target) 
+//         {
+//             gum_stalker_iterator_put_callout(iterator, on_arm64_after, (gpointer) insn->address, NULL);
+//         }
+//     }
+// }
+//
+//
+// const gchar * cpu_format = "
+//     0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
+//     \t0x%x\t0x%x\t0x%x
+//     ";
+//
+// static void
+// on_arm64_before(GumCpuContext *cpu_context,
+//         gpointer user_data)
+// {
+//
+// }
+//
+// static void
+// on_arm64_after(GumCpuContext *cpu_context,
+//         gpointer user_data)
+// {
+//
+// }
+//
+// `, {
+//     on_message: new NativeCallback(messagePtr => {
+//         const message = messagePtr.readUtf8String();
+//         var msg=initMessage();
+//         msg["data"]=message;
+//         send(msg);
+//         console.log(message);
+//         // send(message)
+//       }, 'void', ['pointer']),
+// });
 
-const arm64CM = new CModule(`
-#include <gum/gumstalker.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
-extern void on_message(const gchar *message);
-static void log(const gchar *format, ...);
-static void on_arm64_before(GumCpuContext *cpu_context, gpointer user_data);
-static void on_arm64_after(GumCpuContext *cpu_context, gpointer user_data);
-
-void hello() {
-    on_message("Hello form CModule");
-}
-
-gpointer shared_mem[] = {0, 0};
-
-gpointer 
-get_shared_mem() 
-{
-    return shared_mem;
-}
-
-
-static void
-log(const gchar *format, ...)
-{
-    gchar *message;
-    va_list args;
-
-    va_start(args, format);
-    message = g_strdup_vprintf(format, args);
-    va_end(args);
-
-    on_message(message);
-    g_free(message);
-}
-
-
-void transform(GumStalkerIterator *iterator,
-               GumStalkerOutput *output,
-               gpointer user_data)
-{
-    cs_insn *insn;
-
-    gpointer base = *(gpointer*)user_data;
-    gpointer end = *(gpointer*)(user_data + sizeof(gpointer));
-    
-    while (gum_stalker_iterator_next(iterator, &insn))
-    {
-        gboolean in_target = (gpointer)insn->address >= base && (gpointer)insn->address < end;
-        if(in_target)
-        {
-            log("%p\t%s\t%s", (gpointer)insn->address, insn->mnemonic, insn->op_str);
-            gum_stalker_iterator_put_callout(iterator, on_arm64_before, (gpointer) insn->address, NULL);
-        }
-        gum_stalker_iterator_keep(iterator);
-        if(in_target) 
-        {
-            gum_stalker_iterator_put_callout(iterator, on_arm64_after, (gpointer) insn->address, NULL);
-        }
+function klog(data,...args){
+    for (let item of args){
+        data+="\t"+item;
     }
+    var message={};
+    message["jsname"]="jni_trace_new";
+    message["data"]=data;
+    send(message);
 }
 
-
-const gchar * cpu_format = "
-    0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x\t0x%x\t0x%x
-    \t0x%x\t0x%x\t0x%x
-    ";
-
-static void
-on_arm64_before(GumCpuContext *cpu_context,
-        gpointer user_data)
-{
-
-}
-
-static void
-on_arm64_after(GumCpuContext *cpu_context,
-        gpointer user_data)
-{
-
-}
-
-`, {
-    on_message: new NativeCallback(messagePtr => {
-        const message = messagePtr.readUtf8String();
-        var msg=initMessage();
-        msg["data"]=message;
-        send(msg);
-        console.log(message);
-        // send(message)
-      }, 'void', ['pointer']),
-});
 
 function initMessage(){
   var message={};
@@ -146,6 +157,9 @@ function stalkerTraceRange(tid, base, size) {
 
                     iterator.putCallout((context) => {
                         var callOutAddress=ptr(context.pc-moduleBase)
+                        // if (offsetAddr>0 && callOutAddress.compare(offsetAddr)<0){
+                        //     return;
+                        // }
                         send({
                             type: 'ctx',
                             tid: tid,
@@ -154,7 +168,6 @@ function stalkerTraceRange(tid, base, size) {
                             moduleBase:moduleBase,
                             address:callOutAddress
                         })
-
                     })
 
                 }
@@ -231,7 +244,8 @@ function trace(symbol,offset){
         targetAddress = targetModule.findExportByName(symbol);
     } else if(offset.length>0) {
         var offsetData=parseInt(offset,16);
-
+        offsetAddr=ptr(offsetData);
+        klog("offsetAddr",offsetAddr);
         targetAddress = targetModule.base.add(ptr(offsetData));
     }
     traceAddr(targetAddress)
@@ -271,6 +285,7 @@ const libname = "%moduleName%";
 var isSpawn="%spawn%";
 var symbol="%symbol%";
 var offset="%offset%";
+var offsetAddr=0
 msg= initMessage();
 msg["data"]='----- start trace -----'+libname;
 send(msg);

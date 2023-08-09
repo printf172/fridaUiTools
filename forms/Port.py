@@ -13,15 +13,19 @@ class portForm(QDialog,Ui_Port):
         self.setWindowOpacity(0.93)
         self.btnSubmit.clicked.connect(self.submit)
         self.btnClear.clicked.connect(self.clearUi)
+        self.fridaName=""
+        self.port="6666"
 
 
     def clearUi(self):
         self.txtPort.setText("")
+        self.txtFridaName.setText("")
 
     def submit(self):
         port = self.txtPort.text()
-        if len(port) <= 0:
-            QMessageBox().information(self, "提示", "端口不能为空")
+        if len(self.txtFridaName.text()) <= 0:
+            QMessageBox().information(self, "hint", "missing FridaName")
             return
         self.port = port
+        self.fridaName = self.txtFridaName.text()
         self.accept()

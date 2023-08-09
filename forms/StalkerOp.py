@@ -19,7 +19,7 @@ class stalkerMatchForm(QDialog,Ui_StalkerMatchDialog):
 
     def selectLogPath(self):
         fileName_choose, filetype = QFileDialog.getOpenFileName(self,
-                                                                "选取文件",
+                                                                "select file",
                                                                 self.cwd,
                                                                 "Text Files (*.txt);;Log Files(*.log);;All Files (*)")
         if fileName_choose == "":
@@ -29,7 +29,7 @@ class stalkerMatchForm(QDialog,Ui_StalkerMatchDialog):
 
     def selectSavePath(self):
         fileName_choose, filetype = QFileDialog.getSaveFileName(self,
-                                                                "文件保存",
+                                                                "file save",
                                                                 self.cwd,  # 起始路径
                                                                 "All Files (*);;Text Files (*.txt)")  # 设置文件扩展名过滤,用双分号间隔
         if fileName_choose == "":
@@ -41,17 +41,17 @@ class stalkerMatchForm(QDialog,Ui_StalkerMatchDialog):
 
     def submit(self):
         if len(self.txtLogPath.text())<=0 or os.path.exists(self.txtLogPath.text())==False:
-            QMessageBox().information(self, "提示", "log路径为空或文件不存在")
+            QMessageBox().information(self, "hint", "missing log path")
             return
         if len(self.txtSavePath.text())<=0:
-            QMessageBox().information(self, "提示", "save路径为空")
+            QMessageBox().information(self, "hint", "missing save path")
             return
         logfile=open(self.txtLogPath.text(),"r",encoding="utf-8")
         logdata=logfile.read()
         logfile.close()
 
         #
-        lines= re.findall(r"DEBUG: (tid:.+?address:.+)",logdata)
+        lines= re.findall(r"(tid:.+?address:.+)",logdata)
         contexts=[]
         insts=[]
         for line in lines:
@@ -74,6 +74,7 @@ class stalkerMatchForm(QDialog,Ui_StalkerMatchDialog):
                     break
             m2 = re.search("context:(.+)", curcontext)
             if m2==None:
+                self.appendResult(line)
                 continue
             condata=json.loads(m2.group(1))
             #如果是arm64的情况。会有x0寄存器，然后把w相关的寄存器值手动加进去
@@ -93,8 +94,9 @@ class stalkerMatchForm(QDialog,Ui_StalkerMatchDialog):
                     opdata="0"
                 else:
                     opdata=condata[op]
-                newline=str.replace(newline,"{%s}"%op,opdata)
+                newline=str.replace(newline,"{%s}"%op,str(opdata))
             self.appendResult(newline)
         savefile = open(self.txtSavePath.text(), "w", encoding="utf-8")
-        savefile.write(self.txtResult.toPlainText());
+        savefile.write(self.txtResult.toPlainText())
         savefile.close()
+        QMessageBox().information(self, "hint", "success")

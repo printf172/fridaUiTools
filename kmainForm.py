@@ -4,13 +4,14 @@ import re
 import sys
 from time import sleep
 
-from PyQt5 import uic, QtWidgets
-from PyQt5.QtCore import Qt, QPoint
+from PyQt5 import uic, QtWidgets,QtCore
+from PyQt5.QtCore import Qt, QPoint, QTranslator
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QCursor
 from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog, QStatusBar, QLabel, QMessageBox, QHeaderView, \
-    QTableWidgetItem, QMenu, QAction, QActionGroup
+    QTableWidgetItem, QMenu, QAction, QActionGroup, qApp, QLineEdit
 
 from forms import SelectPackage
+from forms.AntiFrida import antiFridaForm
 from forms.CallFunction import callFunctionForm
 from forms.Custom import customForm
 from forms.DumpAddress import dumpAddressForm
@@ -35,7 +36,12 @@ import json, os, threading, frida
 import platform
 
 import TraceThread
+from utils.IniUtil import IniConfig
 
+conf=IniConfig()
+
+def restart_real_live():
+    qApp.exit(1207)
 
 class kmainForm(QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None):
@@ -46,8 +52,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.th = TraceThread.Runthread(self.hooksData, "", False,self.connType)
         self.updateCmbHooks()
         self.outlogger = LogUtil.Logger('all.txt', level='debug')
-        with open("./config/type.json", "r", encoding="utf8") as typeFile:
-            self.typeData = json.loads(typeFile.read())
+
 
     def initUi(self):
         self.setWindowOpacity(0.93)
@@ -76,11 +81,34 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             CmdUtil.execCmd("chmod 0777 " + projectPath + "/sh/linux/*")
             CmdUtil.execCmd("chmod 0777 " + projectPath + "/sh/mac/*")
         self.statusBar = QStatusBar()
-        self.labStatus = QLabel('当前状态:未连接')
+        self._translate = QtCore.QCoreApplication.translate
+        self.labStatus = QLabel(self._translate("kmainForm",'当前状态:未连接'))
         self.setStatusBar(self.statusBar)
         self.statusBar.addPermanentWidget(self.labStatus, stretch=1)
         self.labPackage = QLabel('')
         self.statusBar.addPermanentWidget(self.labPackage, stretch=2)
+
+        self.languageGroup = QActionGroup(self)
+        self.languageGroup.addAction(self.actionChina)
+        self.languageGroup.addAction(self.actionEnglish)
+
+        self.fridaName = conf.read("kmain", "frida_name")
+        self.customPort = conf.read("kmain", "usb_port")
+        self.address=conf.read("kmain", "wifi_addr")
+        self.wifi_port = conf.read("kmain", "wifi_port")
+        language = conf.read("kmain", "language")
+        if language == "China":
+            self.actionChina.setChecked(True)
+        else:
+            self.actionEnglish.setChecked(True)
+
+
+        if self.actionChina.isChecked():
+            typePath="./config/type.json"
+        else:
+            typePath = "./config/type_en.json"
+        with open(typePath, "r", encoding="utf8") as typeFile:
+            self.typeData = json.loads(typeFile.read())
 
         self.actionAttach.triggered.connect(self.actionAttachStart)
         self.actionSpawn.triggered.connect(self.actionSpawnStart)
@@ -110,14 +138,23 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.actionFridax86Start.triggered.connect(self.FridaX86Start)
         self.actionFridax64Start.triggered.connect(self.FridaX64Start)
         self.actionPullApk.triggered.connect(self.PullApk)
+
+        self.connectHeadGroup = QActionGroup(self)
+        self.connectHeadGroup.addAction(self.actionWifi)
+        self.connectHeadGroup.addAction(self.actionUsb)
         self.actionWifi.triggered.connect(self.WifiConn)
         self.actionUsb.triggered.connect(self.UsbConn)
         self.actionVer14.triggered.connect(self.ChangeVer14)
         self.actionVer15.triggered.connect(self.ChangeVer15)
+        self.actionVer16.triggered.connect(self.ChangeVer16)
+        self.actionEnglish.triggered.connect(self.ChangeEnglish)
+        self.actionChina.triggered.connect(self.ChangeChina)
+
         self.actionChangePort.triggered.connect(self.ChangePort)
         self.verGroup = QActionGroup(self)
         self.verGroup.addAction(self.actionVer14)
         self.verGroup.addAction(self.actionVer15)
+        self.verGroup.addAction(self.actionVer16)
 
         self.btnDumpPtr.clicked.connect(self.dumpPtr)
         self.btnDumpSo.clicked.connect(self.dumpSo)
@@ -155,7 +192,10 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.btnImportHooks.clicked.connect(self.importHooks)
         self.btnLoadHooks.clicked.connect(self.loadHooks)
         self.btnClearHooks.clicked.connect(self.clearHooks)
-        self.header = ["功能", "类名/模块名", "函数", "备注"]
+        if self.actionChina.isChecked():
+            self.header = ["名称", "类名/模块名", "函数", "备注"]
+        else:
+            self.header = ["name", "class or func", "func", "bak"]
         self.tabHooks.setColumnCount(4)
         self.tabHooks.setHorizontalHeaderLabels(self.header)
         self.tabHooks.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -176,6 +216,9 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.btnOpStalkerLog.clicked.connect(self.stalkerOpLog)
         # self.btnOpFartLog.clicked.connect(self.fartOpLog)
         self.btnMemSearch.clicked.connect(self.searchMem)
+        self.btnAntiFrida.clicked.connect(self.antiFrida)
+
+
 
         self.dumpForm = dumpAddressForm()
         self.jniform = jnitraceForm()
@@ -195,6 +238,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.wifiForm=wifiForm()
         self.portForm = portForm()
         self.searchMemForm= searchMemoryForm()
+        self.antiFdForm=antiFridaForm()
 
         self.modules = None
         self.classes = None
@@ -210,11 +254,51 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.chkLibArt.tag = "libArt"
         self.chkHookEvent.tag = "hookEvent"
         self.connType="usb"
-        self.address=""
-        self.port=""
-        self.customPort=""
-        self.curFridaVer = "15.1.9"
-        # self.actionVer14.setChecked(True)
+
+        self.curFridaVer = "14.2.18"
+        self.actionVer14.setChecked(True)
+        # self.toolBarPackageNameTxt = QLineEdit(self)
+        # self.toolBarPackageNameTxt.setMaximumWidth(200)
+        # label = QLabel("进程名：", self)
+        # self.toolBar.insertWidget(None,label)
+        # self.toolBar.insertWidget(None,self.toolBarPackageNameTxt)
+
+        self.actionattach = QtWidgets.QAction(self)
+        self.actionattach.setText("attach")
+        self.actionattach.setToolTip("attach by packageName")
+        self.actionattach.triggered.connect(self.actionAttachNameStart)
+        self.toolBar.addAction(self.actionattach)
+
+        self.actionattachF = QtWidgets.QAction(self)
+        self.actionattachF.setText("attachF")
+        self.actionattachF.setToolTip("attach current top app")
+        self.actionattachF.triggered.connect(self.actionAttachStart)
+        self.toolBar.addAction(self.actionattachF)
+
+        self.actionspawn = QtWidgets.QAction(self)
+        self.actionspawn.setText("spawn")
+        self.actionspawn.triggered.connect(self.actionSpawnStart)
+        self.toolBar.addAction(self.actionspawn)
+
+        self.actionstop = QtWidgets.QAction(self)
+        self.actionstop.setText("stop")
+        self.actionstop.triggered.connect(self.StopAttach)
+        self.toolBar.addAction(self.actionstop)
+
+        # 16.0.8  15.1.9  14.2.18
+        # res=CmdUtil.execCmdData("frida --version")
+        # if "15." in res:
+        #     self.curFridaVer = "15.1.9"
+        #     self.actionVer15.setChecked(True)
+        # elif "14." in res:
+        #     self.curFridaVer = "14.2.18"
+        #     self.actionVer14.setChecked(True)
+        # elif "16." in res:
+        #     self.curFridaVer = "16.0.8"
+        #     self.actionVer16.setChecked(True)
+        # else:
+        #     self.curFridaVer = "15.1.9"
+        #     self.actionVer15.setChecked(True)
 
     def clearSymbol(self):
         self.listSymbol.clear()
@@ -244,24 +328,24 @@ class kmainForm(QMainWindow, Ui_MainWindow):
 
     def searchExport(self):
         if len(self.txtModule.text()) <= 0:
-            QMessageBox().information(self, "提示", "未填写模块名称")
+            QMessageBox().information(self, "hint", self._translate("kmainForm","未填写模块名称"))
             return
-        postdata = {"type": "export", "baseName": self.txtModule.text().split("----")[0]}
-        self.th.searchInfo(postdata)
+        appinfo = self.th.default_api.searchinfo("export", self.txtModule.text().split("----")[0])
+        self.searchAppInfoRes(appinfo)
 
     def searchSymbol(self):
         if len(self.txtModule.text()) <= 0:
-            QMessageBox().information(self, "提示", "未填写模块名称")
+            QMessageBox().information(self, "hint", self._translate("kmainForm","未填写模块名称"))
             return
-        postdata = {"type": "symbol", "baseName": self.txtModule.text().split("----")[0]}
-        self.th.searchInfo(postdata)
+        appinfo=self.th.default_api.searchinfo("symbol", self.txtModule.text().split("----")[0])
+        self.searchAppInfoRes(appinfo)
 
     def searchMethod(self):
         if len(self.txtClass.text()) <= 0:
-            QMessageBox().information(self, "提示", "未填写类型名称")
+            QMessageBox().information(self, "hint",self._translate("kmainForm","未填写类型名称"))
             return
-        postdata = {"type": "method", "baseName": self.txtClass.text()}
-        self.th.searchInfo(postdata)
+        appinfo=self.th.default_api.searchinfo("method", self.txtClass.text())
+        self.searchAppInfoRes(appinfo)
 
     def hooksRemove(self):
         for item in self.tabHooks.selectedItems():
@@ -280,7 +364,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
     # 右键菜单
     def rightMenuShow(self):
         rightMenu = QMenu(self.tabHooks)
-        removeAction = QAction(u"删除", self, triggered=self.hooksRemove)
+        removeAction = QAction(self._translate("kmainForm","删除"), self, triggered=self.hooksRemove)
         rightMenu.addAction(removeAction)
         rightMenu.exec_(QCursor.pos())
 
@@ -296,7 +380,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.txtoutLogs.appendPlainText(datestr + logstr)
         self.outlogger.logger.debug(logstr)
         if "default.js init hook success" in logstr:
-            QMessageBox().information(self, "提示", "附加进程成功")
+            QMessageBox().information(self, "hint", self._translate("kmainForm","附加进程成功"))
 
     # 线程调用脚本结束，并且触发结束信号
     def StopAttach(self):
@@ -327,12 +411,12 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = CmdUtil.adbshellCmd("mkdir /data/local/tmp/fart")
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", "操作失败." + res)
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "操作失败.") + res)
             return
         res = CmdUtil.adbshellCmd("chmod 0777 /data/local/tmp/fart")
         self.log(res)
         if "invalid" in res:
-            QMessageBox().information(self, "提示", "设置权限失败。可能是su权限错误，请先cmd切换")
+            QMessageBox().information(self, "hint",self._translate("kmainForm",  "设置权限失败。可能是su权限错误，请先cmd切换"))
             return
         res = CmdUtil.adbshellCmd("mkdir /sdcard/fart")
         self.log(res)
@@ -342,7 +426,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = CmdUtil.execCmd("adb push ./lib/fart.so /data/local/tmp/fart/fart.so")
         self.log(res)
         if "file pushed" not in res:
-            QMessageBox().information(self, "提示", "上传失败,可能未连接设备."+res)
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "上传失败,可能未连接设备.")+res)
             return
 
         res = CmdUtil.execCmd("adb push ./exec/r0gson.dex /data/local/tmp/r0gson.dex")
@@ -363,7 +447,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.log(res)
         res = CmdUtil.adbshellCmd("cp /data/local/tmp/fart/fart64.so /data/app/")
         self.log(res)
-        QMessageBox().information(self, "提示", "上传完成")
+        QMessageBox().information(self, "hint", self._translate("kmainForm","上传完成"))
 
     def PullDumpDex(self):
         cmd = ""
@@ -379,55 +463,54 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = CmdUtil.execCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", "下载失败." + res)
+            QMessageBox().information(self, "hint", self._translate("kmainForm","下载失败.") + res)
             return
         if "not found" in res:
-            QMessageBox().information(self, "提示", "下载失败.没有连接设备")
+            QMessageBox().information(self, "hint",self._translate("kmainForm","下载失败.没有连接设备") )
             return
-        QMessageBox().information(self, "提示", "下载完成")
+        QMessageBox().information(self, "hint", self._translate("kmainForm","下载完成") )
 
-    def PushFridaServer(self):
+    def PushFridaServerNormal(self,arch):
         try:
-            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-arm /data/local/tmp")
+            name32=""
+            name64=""
+            if self.fridaName!="":
+                name32=self.fridaName+"32"
+                name64=self.fridaName+"64"
+            if arch=="arm":
+                arch32="arm"
+                arch64="arm64"
+            elif arch=="x86":
+                arch32="x86"
+                arch64="x86_64"
+
+            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-{arch32} /data/local/tmp/"+name32)
             self.log(res)
             if "error" in res:
-                QMessageBox().information(self, "提示", "上传失败." + res)
+                QMessageBox().information(self, "hint",self._translate("kmainForm", "上传失败.") + res)
                 return
-            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-arm64 /data/local/tmp")
+            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-{arch64} /data/local/tmp/"+name64)
             self.log(res)
             if "file pushed" not in res:
-                QMessageBox().information(self, "提示", "上传失败,可能未连接设备." + res)
+                QMessageBox().information(self, "hint",self._translate("kmainForm", "上传失败,可能未连接设备.") + res)
                 return
-
-            res = CmdUtil.adbshellCmd("chmod 0777 /data/local/tmp/frida*")
+            if self.fridaName!="":
+                res = CmdUtil.adbshellCmd("chmod 0777 /data/local/tmp/"+self.fridaName+"*")
+            else:
+                res = CmdUtil.adbshellCmd("chmod 0777 /data/local/tmp/frida*")
             self.log(res)
             if "invalid" in res:
-                QMessageBox().information(self, "提示", "上传完成，但是设置权限失败。可能是su权限错误，请先cmd切换")
+                QMessageBox().information(self, "hint",self._translate("kmainForm", "上传完成，但是设置权限失败。可能是su权限错误，请先cmd切换."))
             else:
-                QMessageBox().information(self, "提示", "上传完成")
+                QMessageBox().information(self, "hint", self._translate("kmainForm", "上传完成."))
         except Exception as ex:
-            QMessageBox().information(self, "提示", "上传异常." + str(ex))
+            QMessageBox().information(self, "hint",  self._translate("kmainForm", "上传异常.") + str(ex))
+
+    def PushFridaServer(self):
+        self.PushFridaServerNormal("arm")
 
     def PushFridaServerX86(self):
-        try:
-            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-x86 /data/local/tmp")
-            self.log(res)
-            if "error" in res:
-                QMessageBox().information(self, "提示", "上传失败." + res)
-                return
-            res = CmdUtil.execCmd(f"adb push ./exec/frida-server-{self.curFridaVer}-android-x86_64 /data/local/tmp")
-            self.log(res)
-            if "file pushed" and "bytes in" not in res:
-                QMessageBox().information(self, "提示", "上传失败,可能未连接设备." + res)
-                return
-            res = CmdUtil.adbshellCmd("chmod 0777 /data/local/tmp/frida*")
-            self.log(res)
-            if "invalid" in res:
-                QMessageBox().information(self, "提示", "上传完成，但是设置权限失败。可能是su权限错误，请先cmd切换")
-            else:
-                QMessageBox().information(self, "提示", "上传完成")
-        except Exception as ex:
-            QMessageBox().information(self, "提示", "上传异常." + str(ex))
+        self.PushFridaServerNormal("x86")
 
     def PullFartRes(self):
         cmd = ""
@@ -443,30 +526,30 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = CmdUtil.adbshellCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
+            QMessageBox().information(self, "hint", res)
             return
         cmd = "mkdir -p /sdcard/fart/%s " % pname
         res = CmdUtil.adbshellCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
+            QMessageBox().information(self, "hint", res)
             return
         cmd = "cp /data/data/%s/fart/ /sdcard/fart/%s/ -rf" % (pname, pname)
         res = CmdUtil.adbshellCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
+            QMessageBox().information(self, "hint", res)
             return
         cmd = "adb pull /sdcard/fart/%s/ ./fartdump/%s/" % (pname, pname)
         res = CmdUtil.execCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
+            QMessageBox().information(self, "hint", res)
             return
         if "not found" in res:
-            QMessageBox().information(self, "提示", "下载失败.没有连接设备")
+            QMessageBox().information(self, "hint",self._translate("kmainForm",  "下载失败.没有连接设备") )
             return
-        QMessageBox().information(self, "提示", "下载完成")
+        QMessageBox().information(self, "hint", self._translate("kmainForm",  "下载完成.输出结果在目录./fartdump/%s/") % pname)
 
     def PullApk(self):
         cmdtp = "grep"
@@ -476,7 +559,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = CmdUtil.execCmd(cmd)
         self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
+            QMessageBox().information(self, "hint", res)
             return
         lines=res.split("\n")
         for tmpline in lines:
@@ -484,48 +567,53 @@ class kmainForm(QMainWindow, Ui_MainWindow):
                 line=tmpline
         line = re.split(r"[ /]", res)
         if len(line) < 5:
-            QMessageBox().information(self, "提示", "匹配失败," + res)
+            QMessageBox().information(self, "hint",  self._translate("kmainForm", "匹配失败,") + res)
             return
         packageName = line[4]
         if "StatusBar" in packageName:
-            QMessageBox().information(self, "提示", "匹配失败,手机可能锁屏中,请解锁")
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "匹配失败,手机可能锁屏中,请解锁"))
             return
         cmd = "adb shell dumpsys activity -p %s|%s baseDir" % (packageName, cmdtp)
         res = CmdUtil.execCmd(cmd)
         self.log(res)
         if "baseDir" not in res:
-            QMessageBox().information(self, "提示", "匹配失败,可能未连接手机")
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "匹配失败,可能未连接手机"))
             return
         lines = res.split("\n")
         for tmpline in lines:
             if packageName in tmpline:
                 line = tmpline
-        match = re.search(r"baseDir=(/data/app/%s.+)" % packageName, line)
-        if match == None:
-            QMessageBox().information(self, "提示", "匹配失败," + res)
-            return
-        baseDir = match.group(1)
+
+        pathRes= CmdUtil.execCmdData("adb shell pm path %s" % packageName)
+        pathRes=pathRes.replace("package:","")
         if os.path.exists("./apks") == False:
             os.makedirs("./apks")
-        cmd = "adb pull %s ./apks/%s.apk" % (baseDir, packageName)
-        res = CmdUtil.execCmd(cmd)
-        self.log(res)
+            
+        for path in pathRes.split("\n"):
+            if "apk" not in path:
+                continue
+            cmd = "adb pull %s ./apks/%s.apk" % (path, packageName)
+            res = CmdUtil.execCmd(cmd)
+            self.log(res)
         if "error" in res:
-            QMessageBox().information(self, "提示", res)
-            return
-        QMessageBox().information(self, "提示", packageName + ".apk下载成功")
-
+            QMessageBox().information(self, "hint", res)
+        else:
+            QMessageBox().information(self, "hint", packageName +self._translate("kmainForm", ".apk下载成功.输出结果在目录./apks/"))
 
 
     def ReplaceSh(self,rfile,wfile,name):
         data = FileUtil.readFile(rfile)
+        adb = "adb"
+        if platform.system() == "Darwin":
+            adb = "%adb%"
         if self.connType == "wifi":
-            data = data.replace("%fridaName%", name + " -l 0.0.0.0:" + self.port)
-            data=data.replace("%customPort%",f"adb forward tcp:{self.customPort} tcp:{self.customPort}")
+            data = data.replace("%fridaName%", name + " -l 0.0.0.0:" + self.wifi_port)
+
+            data=data.replace("%customPort%",f"{adb} forward tcp:{self.wifi_port} tcp:{self.wifi_port}")
         elif self.connType == "usb":
             if self.customPort!=None and len(self.customPort)>0:
                 data = data.replace("%fridaName%", name + " -l 0.0.0.0:" + self.customPort)
-                data=data.replace("%customPort%",f"adb forward tcp:{self.customPort} tcp:{self.customPort}")
+                data=data.replace("%customPort%",f"{adb} forward tcp:{self.customPort} tcp:{self.customPort}")
             else:
                 data = data.replace("%fridaName%", name)
                 data = data.replace("%customPort%","")
@@ -535,15 +623,19 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             data = data.replace("%sumod%", "su -c")
         elif self.actionMks0.isChecked():
             data = data.replace("%sumod%", "mks 0")
-
+        
         if platform.system()=="Darwin":
             adbPath= CmdUtil.execCmdData("which adb")
+            if adbPath=="":
+                adbPath="adb"
             data=data.replace("%adb%",adbPath.replace("\n",""))
-
+        if self.fridaName != None and len(self.fridaName) > 0:
+            data = data.replace("%fName%", self.fridaName)
         FileUtil.writeFile(wfile,data)
 
     def ShStart(self, name):
         projectPath = os.path.abspath("./")
+
         if platform.system() == "Windows":
             shfile = "%s\\sh\\tmp\\frida_win.tmp"% (projectPath)
             savefile="%s\\sh\\tmp\\frida_win.bat"% (projectPath)
@@ -573,18 +665,59 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             return
         self.curFridaVer = "15.1.9"
 
+    def ChangeVer16(self, checked):
+        if checked==False:
+            return
+        self.curFridaVer = "16.0.8"
 
+    def ChangeEnglish(self,checked):
+        if checked==False:
+            return
+        conf.write("kmain","language","English")
+        reply = QMessageBox.question(self,
+                                     "hint",
+                                     self._translate("kmainForm","是否立刻重启应用生效？"),
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply:
+            restart_real_live()
+    def ChangeChina(self,checked):
+        if checked==False:
+            return
+        conf.write("kmain", "language", "China")
+        reply = QMessageBox.question(self,
+                                     "hint",
+                                     self._translate("kmainForm", "是否立刻重启应用生效？"),
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply:
+            restart_real_live()
+    
     def Frida32Start(self):
-        self.ShStart(f"frida-server-{self.curFridaVer}-android-arm")
+        if self.fridaName !=None and len(self.fridaName)>0:
+            name=self.fridaName+"32"
+        else:
+            name=f"frida-server-{self.curFridaVer}-android-arm"
+        self.ShStart(name)
 
     def Frida64Start(self):
-        self.ShStart(f"frida-server-{self.curFridaVer}-android-arm64")
+        if self.fridaName !=None and len(self.fridaName)>0:
+            name=self.fridaName+"64"
+        else:
+            name=f"frida-server-{self.curFridaVer}-android-arm64"
+        self.ShStart(name)
 
     def FridaX86Start(self):
-        self.ShStart(f"frida-server-{self.curFridaVer}-android-x86")
+        if self.fridaName !=None and len(self.fridaName)>0:
+            name=self.fridaName+"32"
+        else:
+            name=f"frida-server-{self.curFridaVer}-android-x86"
+        self.ShStart(name)
 
     def FridaX64Start(self):
-        self.ShStart(f"frida-server-{self.curFridaVer}-android-x86_64")
+        if self.fridaName !=None and len(self.fridaName)>0:
+            name=self.fridaName+"64"
+        else:
+            name=f"frida-server-{self.curFridaVer}-android-x86_64"
+        self.ShStart(name)
 
     def changeCmdType(self,data):
         CmdUtil.cmdhead = data
@@ -619,13 +752,13 @@ class kmainForm(QMainWindow, Ui_MainWindow):
     def taskOver(self):
         self.log("附加进程结束")
         self.changeAttachStatus(False)
-        QMessageBox().information(self, "提示", "成功停止附加进程")
+        QMessageBox().information(self, "hint",self._translate("kmainForm","成功停止附加进程") )
 
 
     # 这是附加结束时的状态栏显示包名
     def attachOver(self, name):
         if "ERROR" in name:
-            QMessageBox().information(self, "提示", "附加失败."+name)
+            QMessageBox().information(self, "hint",self._translate("kmainForm","附加失败.")+name)
             self.changeAttachStatus(False)
             return
         tmppath = "./tmp/spawnPackage.txt"
@@ -639,6 +772,8 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             if name not in packageData:
                 packageFile.write(name + "\n")
         self.labPackage.setText(name)
+        appinfo=self.th.default_api.loadappinfo()
+        self.loadAppInfo(appinfo)
 
     def getFridaDevice(self):
         if self.connType=="usb":
@@ -650,7 +785,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             else:
                 return frida.get_usb_device()
         elif self.connType=="wifi":
-            str_host = "%s:%s" % (self.address, self.port)
+            str_host = "%s:%s" % (self.address, self.wifi_port)
             manager = frida.get_device_manager()
             device = manager.add_remote_device(str_host)
             return device
@@ -660,8 +795,8 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.log("actionAttach")
         try:
             if self.connType=="wifi":
-                if len(self.address)<8 or len(self.port)<0:
-                    QMessageBox().information(self, "提示", "当前为wifi连接,但是未设置地址或端口")
+                if len(self.address)<8 or len(self.wifi_port)<0:
+                    QMessageBox().information(self, "hint", self._translate("kmainForm","当前为wifi连接,但是未设置地址或端口"))
                     return
 
             # 查下进程。能查到说明frida_server开启了
@@ -670,7 +805,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.changeAttachStatus(True)
             self.th = TraceThread.Runthread(self.hooksData, "", False,self.connType)
             self.th.address=self.address
-            self.th.port=self.port
+            self.th.port=self.wifi_port
             self.th.customPort=self.customPort
             self.th.taskOverSignel.connect(self.taskOver)
             self.th.loggerSignel.connect(self.log)
@@ -684,10 +819,10 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.th.start()
             if len(self.hooksData) <= 0:
                 # QMessageBox().information(self, "提示", "未设置hook选项")
-                self.log("未设置hook选项")
+                self.log(self._translate("kmainForm","未设置hook选项"))
         except Exception as ex:
-            self.log("附加异常.err:" + str(ex))
-            QMessageBox().information(self, "提示", "附加进程失败." + str(ex))
+            self.log(self._translate("kmainForm","附加异常")+".err:" + str(ex))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","附加异常")+"." + str(ex))
 
     # spawn的方式附加进程
     def actionSpawnStart(self):
@@ -697,8 +832,8 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         if res == 0:
             return
         try:
-            if self.connType=="wifi" and (len(self.address)<8 or len(self.port)):
-                QMessageBox().information(self, "提示", "当前为wifi连接,但是未设置地址或端口")
+            if self.connType=="wifi" and (len(self.address)<8 or len(self.wifi_port)<=0):
+                QMessageBox().information(self, "hint",self._translate("kmainForm","当前为wifi连接,但是未设置地址或端口"))
                 return
             # 查下进程。能查到说明frida_server开启了
             device = self.getFridaDevice()
@@ -706,7 +841,8 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.changeAttachStatus(True)
             self.th = TraceThread.Runthread(self.hooksData, self.spawnAttachForm.packageName, True,self.connType)
             self.th.address=self.address
-            self.th.port=self.port
+            self.th.port=self.wifi_port
+            self.th.customPort = self.customPort
             self.th.taskOverSignel.connect(self.taskOver)
             self.th.loggerSignel.connect(self.log)
             self.th.outloggerSignel.connect(self.outlog)
@@ -715,32 +851,33 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.th.searchAppInfoSignel.connect(self.searchAppInfoRes)
             self.th.searchMemorySignel.connect(self.searchMemResp)
             self.th.attachType="spawn"
+
             self.th.start()
             if len(self.hooksData) <= 0:
                 # QMessageBox().information(self, "提示", "未设置hook选项")
-                self.log("未设置hook选项")
+                self.log(self._translate("kmainForm","未设置hook选项"))
         except Exception as ex:
-            self.log("附加异常.err:" + str(ex))
-            QMessageBox().information(self, "提示", "附加进程失败." + str(ex))
+            self.log(self._translate("kmainForm","附加异常")+".err:" + str(ex))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","附加异常.") + str(ex))
 
     # 修改ui的状态表现
     def changeAttachStatus(self, isattach):
         if isattach:
             self.menuAttach.setEnabled(False)
             self.actionStop.setEnabled(True)
-            self.labStatus.setText("当前状态:已连接")
+            self.labStatus.setText( self._translate("kmainForm","当前状态:已连接") )
         else:
             self.menuAttach.setEnabled(True)
             self.actionStop.setEnabled(False)
-            self.labStatus.setText("当前状态:未连接")
+            self.labStatus.setText(self._translate("kmainForm","当前状态:未连接") )
             self.labPackage.setText("")
 
     # 根据进程名进行附加进程
     def actionAttachNameStart(self):
         self.log("actionAttachName")
         try:
-            if self.connType=="wifi" and (len(self.address)<8 or len(self.port)):
-                QMessageBox().information(self, "提示", "当前为wifi连接,但是未设置地址或端口")
+            if self.connType=="wifi" and (len(self.address)<8 or len(self.wifi_port)):
+                QMessageBox().information(self, "hint", self._translate("kmainForm","当前为wifi连接,但是未设置地址或端口"))
                 return
             device = self.getFridaDevice()
             process = device.enumerate_processes()
@@ -752,7 +889,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.changeAttachStatus(True)
             self.th = TraceThread.Runthread(self.hooksData, selectPackageForm.packageName, False,self.connType)
             self.th.address=self.address
-            self.th.port=self.port
+            self.th.port=self.wifi_port
             self.th.taskOverSignel.connect(self.taskOver)
             self.th.loggerSignel.connect(self.log)
             self.th.outloggerSignel.connect(self.outlog)
@@ -763,25 +900,31 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.th.attachType = "attach"
             self.th.start()
         except Exception as ex:
-            self.log("附加异常.err:" + str(ex))
-            QMessageBox().information(self, "提示", "附加进程失败." + str(ex))
+            self.log(self._translate("kmainForm","附加异常")+".err:" + str(ex))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","附加异常.") + str(ex))
 
     def ChangePort(self):
+        self.portForm.txtFridaName.setText(self.fridaName)
+        self.portForm.txtPort.setText(self.customPort)
         res=self.portForm.exec()
         if res==0:
             return
+        self.fridaName = self.portForm.fridaName
         self.customPort = self.portForm.port
+        conf.write("kmain", "frida_name", self.fridaName)
+        conf.write("kmain", "usb_port", self.customPort)
 
     def WifiConn(self):
+        self.wifiForm.txtAddress.setText(self.address)
+        self.wifiForm.txtPort.setText(self.wifi_port)
         res=self.wifiForm.exec()
-        if res==0:
-            self.actionWifi.setChecked(False)
+        if res==0 :
             return
         self.connType="wifi"
         self.address=self.wifiForm.address
-        self.port=self.wifiForm.port
-        self.actionWifi.setChecked(True)
-        self.actionUsb.setChecked(False)
+        self.wifi_port=self.wifiForm.port
+        conf.write("kmain", "wifi_addr", self.address)
+        conf.write("kmain", "wifi_port", self.wifi_port)
     def UsbConn(self):
         self.connType="usb"
         self.actionUsb.setChecked(True)
@@ -790,43 +933,40 @@ class kmainForm(QMainWindow, Ui_MainWindow):
     # 是否附加进程了
     def isattach(self):
         if "未连接" in self.labStatus.text():
+            self.log(self._translate("kmainForm", "Error:还未附加进程"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm", "Error:未附加进程"))
             return False
         return True
 
     # ====================start======需要附加后才能使用的功能,基本都是在内存中查数据================================
 
+
+
     def dumpPtr(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if self.modules == None or len(self.modules) <= 0:
-            self.log("Error:未附加进程或操作太快,请稍等")
-            QMessageBox().information(self, "提示", "未附加进程或操作太快,请稍等")
+            self.log(self._translate("kmainForm", "Error:未附加进程或操作太快,请稍等"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","Error:未附加进程或操作太快,请稍等"))
             return
         mods = []
         for item in self.modules:
             mods.append(item["name"])
-        self.log("dump指定地址")
+        self.log(self._translate("kmainForm","dump指定地址"))
         self.dumpForm.modules = mods
         self.dumpForm.initData()
         res = self.dumpForm.exec()
         if res == 0:
             return
         # 设置了module就会以module为基址再加上address去dump。如果不设置module。就会直接dump指定的address
-        postdata = {"moduleName": self.dumpForm.moduleName, "address": self.dumpForm.address,
-                    "dumpType": self.dumpForm.dumpType,
-                    "size": self.dumpForm.size}
-        self.th.dumpPtr(postdata)
+        self.th.default_api.dumpptr(self.dumpForm.moduleName,self.dumpForm.address, self.dumpForm.dumpType,self.dumpForm.size)
 
     def dumpSo(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if self.modules == None or len(self.modules) <= 0:
-            self.log("Error:未附加进程或操作太快,请稍等")
-            QMessageBox().information(self, "提示", "未附加进程或操作太快,请稍等")
+            self.log(self._translate("kmainForm","Error:未附加进程或操作太快,请稍等"))
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "Error:未附加进程或操作太快,请稍等"))
             return
         mods = []
         for item in self.modules:
@@ -837,23 +977,35 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = self.dumpSoForm.exec()
         if res == 0:
             return
-        postdata = {"moduleName": self.dumpSoForm.moduleName}
-        self.th.dumpSoPtr(postdata)
+        soName=self.dumpSoForm.moduleName
+        module_info = self.th.default_api.findmodule(soName)
+        print(module_info)
+        base = module_info["base"]
+        size = module_info["size"]
+        module_buffer = self.th.default_api.dumpmodule(soName)
+        if module_buffer != -1:
+            dump_so_name = soName + ".dump.so"
+            with open(dump_so_name, "wb") as f:
+                f.write(module_buffer)
+                f.close()
+                arch = self.th.default_api.arch()
+                fix_so_name = CmdUtil.fix_so(arch, soName, dump_so_name, base, size)
+                self.outlog(fix_so_name)
+                os.remove(dump_so_name)
+                QMessageBox().information(self, "hint",self._translate("kmainForm", f"dump {soName} 成功"))
 
     def dumpFart(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if "tuoke" not in self.hooksData:
-            self.log("Error:未勾选脱壳脚本")
-            QMessageBox().information(self, "提示", "未勾选脱壳脚本")
+            self.log(self._translate("kmainForm", "Error:未勾选脱壳脚本"))
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "Error:未勾选脱壳脚本"))
             return
         if self.hooksData["tuoke"]["class"] != "fart":
-            self.log("Error:未勾选fart脱壳脚本")
-            QMessageBox().information(self, "提示", "未勾选fart脱壳脚本")
+            self.log(self._translate("kmainForm", "Error:未勾选fart脱壳脚本"))
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "Error:未勾选fart脱壳脚本"))
             return
-
+        CmdUtil.adbshellCmd("mkdir /data/data/"+self.labPackage.text()+"/fart/")
         res = self.fartForm.exec()
         if res == 0:
             return
@@ -862,28 +1014,24 @@ class kmainForm(QMainWindow, Ui_MainWindow):
 
     def dumpDex(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if "tuoke" not in self.hooksData:
-            self.log("Error:未勾选脱壳脚本")
-            QMessageBox().information(self, "提示", "未勾选脱壳脚本")
+            self.log(self._translate("kmainForm", "Error:未勾选脱壳脚本"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm", "Error:未勾选脱壳脚本"))
             return
         if self.hooksData["tuoke"]["class"] != "dumpdexclass":
-            self.log("Error:未勾选dumpdexclass脱壳脚本")
-            QMessageBox().information(self, "提示", "未勾选dumpdexclass脱壳脚本")
+            self.log(self._translate("kmainForm", "Error:未勾选dumpdexclass脱壳脚本"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm", "Error:未勾选dumpdexclass脱壳脚本"))
             return
         t1 = threading.Thread(target=self.th.dumpdex)
         t1.start()
 
     def wallBreaker(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if self.classes == None or len(self.classes) <= 0:
-            self.log("Error:未附加进程或操作太快,请稍等")
-            QMessageBox().information(self, "提示", "未附加进程或操作太快,请稍等")
+            self.log(self._translate("kmainForm", "Error:未附加进程或操作太快,请稍等"))
+            QMessageBox().information(self, "hint",self._translate("kmainForm", "未附加进程或操作太快,请稍等") )
             return
         self.wallBreakerForm.classes = self.classes
         self.wallBreakerForm.api = self.th.default_script.exports
@@ -892,16 +1040,14 @@ class kmainForm(QMainWindow, Ui_MainWindow):
 
     def callFunction(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         if "custom" not in self.hooksData:
-            self.log("Error:未使用自定义脚本,无主动调用函数")
-            QMessageBox().information(self, "提示", "未使用自定义脚本,无主动调用函数")
+            self.log(self._translate("kmainForm","Error:未使用自定义脚本,无主动调用函数"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","Error:未使用自定义脚本,无主动调用函数"))
             return
         if len(self.th.customCallFuns) <= 0:
-            self.log("Error:自定义脚本中未找到主动调用函数")
-            QMessageBox().information(self, "提示", "自定义脚本中未找到主动调用函数")
+            self.log(self._translate("kmainForm","Error:自定义脚本中未找到主动调用函数"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","Error:自定义脚本中未找到主动调用函数"))
             return
         self.callFunctionForm.api = self.th.default_script.exports
         self.callFunctionForm.callMethods = self.th.customCallFuns
@@ -920,12 +1066,11 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.searchMemForm.appendResult(data)
     def searchMem(self):
         if self.isattach() == False:
-            self.log("Error:还未附加进程")
-            QMessageBox().information(self, "提示", "未附加进程")
             return
         self.searchMemForm.th = self.th
         self.searchMemForm.init()
         self.searchMemForm.show()
+
 
     # ====================end======需要附加后才能使用的功能,基本都是在内存中查数据================================
 
@@ -945,14 +1090,14 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         if checked:
             self.log("hook "+msg)
         else:
-            self.log("取消hook "+msg)
+            self.log(self._translate("kmainForm","取消hook ")+msg)
 
     def hookJNI(self, checked):
         typeStr = "jnitrace"
         if checked:
             self.log("hook jni")
         else:
-            self.log("取消hook jni")
+            self.log(self._translate("kmainForm","取消hook jni"))
             if typeStr in self.hooksData:
                 self.hooksData.pop(typeStr)
                 self.updateTabHooks()
@@ -964,18 +1109,18 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             return
         jniHook = {"class": self.jniform.moduleName, "method": self.jniform.methodName,
                    "offset":self.jniform.offset,
-                   "bak": "jni trace(暂时未打印详细参数和返回值结果)"}
+                   "bak": self._translate("kmainForm","jni trace(不打印详细参数和返回值结果)")}
         self.hooksData[typeStr] = jniHook
         self.updateTabHooks()
 
     def hookNetwork(self, checked):
-        self.chk_hook_insert(checked,"r0capture","网络相关")
+        self.chk_hook_insert(checked,"r0capture",self._translate("kmainForm","网络相关"))
 
     def hookJavaEnc(self, checked):
-        self.chk_hook_insert(checked, "javaEnc", "java的算法加解密所有函数")
+        self.chk_hook_insert(checked, "javaEnc", self._translate("kmainForm","java的算法加解密所有函数"))
 
     def hookEvent(self, checked):
-        self.chk_hook_insert(checked, "hookEvent", "控件的点击事件")
+        self.chk_hook_insert(checked, "hookEvent",self._translate("kmainForm", "控件的点击事件"))
 
     def hookRegisterNative(self, checked):
         self.chk_hook_insert(checked, "RegisterNative", "RegisterNative")
@@ -987,17 +1132,17 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.chk_hook_insert(checked, "libArm", "libArm")
 
     def hookSslPining(self, checked):
-        self.chk_hook_insert(checked, "sslpining", "证书锁定")
+        self.chk_hook_insert(checked, "sslpining", "sslpining")
 
     def hookAntiDebug(self,checked):
-        self.chk_hook_insert(checked, "anti_debug", "简单一键反调试")
+        self.chk_hook_insert(checked, "anti_debug",self._translate("kmainForm", "简单一键反调试"))
 
     def hookNewJnitrace(self,checked):
         typeStr = "FCAnd_jnitrace"
         if checked:
             self.log("hook jni")
         else:
-            self.log("取消hook jni")
+            self.log(self._translate("kmainForm", "取消hook jni"))
             if typeStr in self.hooksData:
                 self.hooksData.pop(typeStr)
                 self.updateTabHooks()
@@ -1010,7 +1155,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             return
         jniHook = {"class": self.newJniform.moduleName, "method": self.newJniform.methodName,
                    "offset":self.newJniform.offset,
-                   "bak": "FCAnd_jnitrace有详细的打印细节"}
+                   "bak": self._translate("kmainForm","FCAnd_jnitrace有详细的打印细节")}
         self.hooksData[typeStr] = jniHook
         self.updateTabHooks()
         # self.chk_hook_insert(checked, "FCAnd_jnitrace", "新的jnitrace")
@@ -1018,7 +1163,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
     def matchMethod(self):
         self.zenTracerForm.flushCmb()
         self.zenTracerForm.exec()
-        self.log("根据函数名trace hook")
+        self.log(self._translate("kmainForm","根据函数名trace hook"))
         if len(self.zenTracerForm.traceClass) <= 0:
             return
         # matchHook={"class":mform.className,"method":mform.methodName,"bak":"匹配指定类中的指定函数.无类名则hook所有类中的指定函数.无函数名则hook类的所有函数"}
@@ -1038,7 +1183,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         classNames = ",".join(self.zenTracerForm.traceClass)
         methodNames = ",".join(self.zenTracerForm.traceMethods)
         matchHook = {"class": classNames, "method": methodNames,
-                     "bak": "ZenTracer的改造功能,匹配类和函数进行批量hook",
+                     "bak": self._translate("kmainForm","ZenTracer的改造功能,匹配类和函数进行批量hook"),
                      "traceClass": self.zenTracerForm.traceClass, "traceBClass": self.zenTracerForm.traceBClass,
                      "traceMethod": self.zenTracerForm.traceMethods, "traceBMethod": self.zenTracerForm.traceBMethods,
                      "stack": stack, "hookInit": hookInit, "isMatch": isMatch, "isMatchMethod": isMatchMethod}
@@ -1050,9 +1195,9 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = self.nativesForm.exec()
         if res == 0:
             return
-        self.log("批量hook native的sub函数")
+        self.log(self._translate("kmainForm","批量hook native的sub函数"))
         matchHook = {"class": self.nativesForm.moduleName, "method": self.nativesForm.methods,
-                     "bak": "批量匹配sub函数,使用较通用的方式打印参数."}
+                     "bak":self._translate("kmainForm","批量匹配sub函数,使用较通用的方式打印参数.") }
         typeStr = "match_sub"
         self.hooksData[typeStr] = matchHook
         self.updateTabHooks()
@@ -1065,7 +1210,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             return
         method = self.stalkerForm.symbol + " " + self.stalkerForm.offset
         matchHook = {"class": self.stalkerForm.moduleName, "method": method.strip(),
-                     "bak": "参考自项目sktrace.trace汇编并打印寄存器值",
+                     "bak": self._translate("kmainForm","参考自项目sktrace.trace汇编并打印寄存器值"),
                      "symbol": self.stalkerForm.symbol, "offset": self.stalkerForm.offset}
         typeStr = "stakler"
         self.hooksData[typeStr] = matchHook
@@ -1091,7 +1236,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = tform.exec()
         if res == 0:
             return
-        self.log("使用脱壳" + tform.tuokeType)
+        self.log(self._translate("kmainForm","使用脱壳") + tform.tuokeType)
         self.hooksData["tuoke"] = {"class": tform.tuokeType, "method": "", "bak": self.typeData[tform.tuokeType]["bak"]}
         self.updateTabHooks()
 
@@ -1100,9 +1245,9 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         res = self.pform.exec()
         if res == 0:
             return
-        self.log("pathch替换模块:" + self.pform.moduleName + "地址:" + self.pform.address + "的数据为" + self.pform.patch)
+        self.log("pathch module:" + self.pform.moduleName + "\taddress:" + self.pform.address + "\tdata:" + self.pform.patch)
         patchHook = {"class": self.pform.moduleName, "method": self.pform.address + "|" + self.pform.patch,
-                     "bak": "替换指定地址的二进制数据.", "address": self.pform.address, "code": self.pform.patch}
+                     "bak": self._translate("kmainForm","替换指定地址的二进制数据."), "address": self.pform.address, "code": self.pform.patch}
         typeStr = "patch"
         if typeStr in self.hooksData:
             self.hooksData[typeStr].append(patchHook)
@@ -1111,23 +1256,34 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             self.hooksData[typeStr].append(patchHook)
         self.updateTabHooks()
 
+    def antiFrida(self):
+        self.antiFdForm.exec()
+        if self.antiFdForm.antiType=="":
+            return
+        hookData = {"class": self.antiFdForm.antiType, "method": self.antiFdForm.keyword,"isExitThread":self.antiFdForm.chkExitThread.isChecked(),
+                     "bak": self._translate("kmainForm","简单的过frida检测."), "address": self.pform.address, "code": self.pform.patch}
+        typeStr = "antiFrida"
+        self.hooksData[typeStr]=hookData
+        CmdUtil.adbshellCmd("touch /data/local/tmp/maps && chmod 777 /data/local/tmp/maps")
+        self.updateTabHooks()
+
     def saveHooks(self):
-        self.log("保存hook列表")
+        self.log(self._translate("kmainForm","保存hook列表"))
         if len(self.hooksData) <= 0:
-            QMessageBox().information(self, "提示", "未设置hook项,无法保存")
+            QMessageBox().information(self, "hint", self._translate("kmainForm","未设置hook项,无法保存"))
             return
         saveHooks = self.txtSaveHooks.text()
         if len(saveHooks) <= 0:
-            self.log("未填写保存的别名")
-            QMessageBox().information(self, "提示", "未填写别名")
+            self.log(self._translate("kmainForm","未填写保存的别名"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","未填写保存的别名"))
             return
         filepath = "./hooks/" + saveHooks + ".json"
         with open(filepath, "w", encoding="utf8") as hooksFile:
             jsondata = json.dumps(self.hooksData)
             hooksFile.write(jsondata)
-            self.log("成功保存到" + filepath)
+            self.log(self._translate("kmainForm","成功保存到") + filepath)
             self.updateCmbHooks()
-            QMessageBox().information(self, "提示", "保存成功")
+            QMessageBox().information(self, "hint", self._translate("kmainForm","成功保存到") + filepath)
 
     # 加载hook列表后。这里刷新下checked
     def refreshChecks(self):
@@ -1140,6 +1296,8 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.chkLibArt.setChecked(self.chkLibArt.tag in self.hooksData)
 
     def loadJson(self, filepath):
+        if os.path.exists(filepath)==False:
+            return
         with open(filepath, "r", encoding="utf8") as hooksFile:
             data = hooksFile.read()
             self.hooksData = json.loads(data)
@@ -1151,17 +1309,17 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         if name:
             self.clearHooks()
             filepath = "./hooks/" + name + ".json"
-            self.log("加载" + filepath)
+            self.log(self._translate("kmainForm","加载")  + filepath)
             self.loadJson(filepath)
-            self.log("成功加载" + filepath)
+            self.log(self._translate("kmainForm","成功加载")  + filepath)
 
     # 导入hook的json文件
     def importHooks(self):
         filepath = QtWidgets.QFileDialog.getOpenFileName(self, "open files")
         if filepath[0]:
-            self.log("导入json文件" + filepath[0])
+            self.log(self._translate("kmainForm","导入json文件") + filepath[0])
             self.loadJson(filepath[0])
-            self.log("成功导入文件" + filepath[0])
+            self.log(self._translate("kmainForm","成功导入文件")  + filepath[0])
 
     # 清除hook列表
     def clearHooks(self):
@@ -1176,7 +1334,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
     # 更新加载hook列表
     def updateCmbHooks(self):
         self.cmbHooks.clear()
-        self.cmbHooks.addItem("选择hook列表")
+        self.cmbHooks.addItem("select hook list")
         for name in os.listdir("./hooks"):
             if name.index(name) >= 0:
                 self.cmbHooks.addItem(name.replace(".json", ""))
@@ -1256,10 +1414,14 @@ class kmainForm(QMainWindow, Ui_MainWindow):
         self.txtClass.setText(item.text())
 
     # 附加成功后取出app的信息展示
-    def loadAppInfo(self, appinfo):
+    def loadAppInfo(self, info):
         self.listModules.clear()
         self.listClasses.clear()
-        info = json.loads(appinfo)
+
+        if info==None:
+            return
+        if "modules" not in info or "classes" not in info:
+            return
         self.modules = info["modules"]
         self.classes = info["classes"]
 
@@ -1281,8 +1443,7 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             for module in info["modules"]:
                 packageTmpFile.write(module["name"] + "\n")
 
-    def searchAppInfoRes(self, appinfo):
-        info = json.loads(appinfo)
+    def searchAppInfoRes(self, info):
         searchTyep = info["type"]
         self.searchType = searchTyep
         if searchTyep == "export" or searchTyep == "symbol":
@@ -1296,36 +1457,37 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             for method in info[searchTyep]:
                 self.listMethod.addItem(method)
 
+
     # ====================end======附加前使用的功能,基本都是在内存中查数据================================
     # 关于我
     def actionAbort(self):
         QMessageBox().about(self, "About",
-                            "\nfridaUiTools: 缝合怪,常用脚本整合的界面化工具 \nAuthor: https://github.com/dqzg12300")
+                            self._translate("kmainForm","\nfridaUiTools: 缝合怪,常用脚本整合的界面化工具 \nAuthor: https://github.com/dqzg12300"))
 
     def appInfoFlush(self):
         res = CmdUtil.exec("adb shell dumpsys window")
         m1 = re.search("mCurrentFocus=Window\\{(.+?)\\}", res)
         if m1 == None:
             self.log(res)
-            self.log("未找到焦点窗口数据，可能未连接手机")
-            QMessageBox().information(self, "提示", "未找到焦点窗口数据，可能未连接手机")
+            self.log(self._translate("kmainForm","未找到焦点窗口数据，可能未连接手机"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","未找到焦点窗口数据，可能未连接手机"))
             return
         m1sp = m1.group(1).split(" ")
         if len(m1sp) < 3:
             self.log(m1.group(1))
-            self.log("焦点数据格式不正确")
-            QMessageBox().information(self, "提示", "焦点数据格式不正确")
+            self.log(self._translate("kmainForm","焦点数据格式不正确"))
+            QMessageBox().information(self, "hint",self._translate("kmainForm","焦点数据格式不正确"))
             return
         m1data = m1sp[2]
         if m1data == "StatusBar":
-            self.log("请解锁屏幕")
-            QMessageBox().information(self, "提示", "请解锁手机屏幕")
+            self.log(self._translate("kmainForm","请解锁屏幕"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","请解锁屏幕"))
             return
         m1dataSp = m1data.split("/")
         if len(m1dataSp) < 2:
             self.log(m1)
-            self.log("焦点数据格式不正确")
-            QMessageBox().information(self, "提示", "焦点数据格式不正确")
+            self.log(self._translate("kmainForm","焦点数据格式不正确"))
+            QMessageBox().information(self, "hint", self._translate("kmainForm","焦点数据格式不正确"))
             return
         self.txtProcessName.setText(m1dataSp[0])
         self.txtCurrentFocus.setText(m1dataSp[1])
@@ -1355,11 +1517,51 @@ class kmainForm(QMainWindow, Ui_MainWindow):
             CmdUtil.execCmd(CmdUtil.cmdhead + "\"pkill -9 frida\"")
 
 
+def getTrans():
+    trans = QTranslator()
+    trans.load('./ui/kmain.qm')
+    app.installTranslator(trans)
+    qmNames=[
+        "kmain.qm","antiFrida.qm","callFunction.qm","custom.qm","dump_so.qm","dumpAddress.qm",
+        "fart.qm","fartBin.qm","fdClass.qm","jnitrace.qm","natives.qm","patch.qm","port.qm",
+        "searchMemory.qm","selectPackage.qm","spawnAttach.qm","stalker.qm","stalkerMatch.qm",
+        "tuoke.qm","wallBreaker.qm","wifi.qm","zenTracer.qm","kmainForm.qm"
+             ]
+    transList=[]
+    for qmName in qmNames:
+        qmPath="./ui/"+qmName
+        trans = QTranslator()
+        trans.load(qmPath)
+        transList.append(trans)
+    formQmNames = ["Custom.qm","FartBin.qm","SearchMemory.qm","Wallbreaker.qm","ZenTracer.qm"]
+    for qmName in formQmNames:
+        qmPath = "./forms/" + qmName
+        trans = QTranslator()
+        trans.load(qmPath)
+        transList.append(trans)
+    return transList
+
+
+
+
 if __name__ == "__main__":
+    current_exit_code = 1207
     app = QApplication(sys.argv)
-    kmain = kmainForm()
-    kmain.show()
-    sys.exit(app.exec_())
+    while current_exit_code == 1207:
+        language=conf.read("kmain","language")
+        # changeTranslator(language=="English")
+        transList= getTrans()
+        if language=="English":
+            for trans in transList:
+                app.installTranslator(trans)
+        else:
+            for trans in transList:
+                app.removeTranslator(trans)
+        kmain = kmainForm()
+        kmain.show()
+        current_exit_code=app.exec_()
+        kmain=None
+    sys.exit(current_exit_code)
 
 
 

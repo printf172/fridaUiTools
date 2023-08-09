@@ -15,10 +15,12 @@ function log(text) {
     msg["data"]="ZenTracer:::" + JSON.stringify(packet)
     send(msg)
 }
-
-function klog(data){
+function klog(data,...args){
+    for (let item of args){
+        data+="\t"+item;
+    }
     var message={};
-    message["jsname"]="ZenTracer";
+    message["jsname"]="jni_trace_new";
     message["data"]=data;
     send(message);
 }
@@ -68,6 +70,7 @@ function traceClass(clsname) {
         var isMatch="%isMatchMethod%";
         //过滤一下要hook的函数，
         methods.forEach(function (method) {
+
             if(matchRegExMethod.length>0){
                 var flag=false;
                 var hasmatch=false;
@@ -89,12 +92,16 @@ function traceClass(clsname) {
                         }
                         hasmatch=true
                     }
+
                     if(isMatch) {
+                        // console.log("match",method.getName().toUpperCase(),matchsplit[1].toUpperCase());
                         if (method.getName().toUpperCase().indexOf(matchsplit[1].toUpperCase()) != -1) {
                             flag = true;
+
                             break;
                         }
                     }else{
+                        // console.log("equals",method.getName().toUpperCase(),matchsplit[1].toUpperCase());
                         if (method.getName().toUpperCase()== matchsplit[1].toUpperCase()) {
                             flag = true;
                             break;
